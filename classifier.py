@@ -45,7 +45,8 @@ class BertSentimentClassifier(torch.nn.Module):
                 param.requires_grad = True
 
         ### TODO
-        raise NotImplementedError
+        self.ln1 = nn.Linear(in_features = config.hidden_size,
+                             out_features=self.num_labels)
 
 
     def forward(self, input_ids, attention_mask):
@@ -54,7 +55,23 @@ class BertSentimentClassifier(torch.nn.Module):
         # HINT: you should consider what is the appropriate output to return given that
         # the training loop currently uses F.cross_entropy as the loss function.
         ### TODO
-        raise NotImplementedError
+        # attention_mask: [batch_size, seq_len] - same size as input_ids, 1 represents non-padding tokens, 0 represents padding tokens
+        # input_ids: [batch_size, seq_len], seq_len is the max length of the batch
+                
+        # encode sentences using BERT and obtain the pooled representation of each sentence 
+        out = self.bert.forward(input_ids=input_ids, attention_mask=attention_mask)
+        sequence_output = out["sequence_output"] 
+        pooler_output = out["pooler_output"] 
+        # apply dropout on pooled output 
+        pooler_dropout = torch.nn.Dropout(p=config.hidden_dropout_prob)(pooler_output)  
+        # project using linear layer 
+        projected = self.ln1(pooler_dropout) 
+         
+        # logit is last layer 
+        # return one logit for each of the 5 sentiment categories
+        logits = projected      
+
+        return logits
 
 
 
