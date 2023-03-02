@@ -93,7 +93,7 @@ class MultitaskBERT(nn.Module):
         ### DONE
         out = self.forward(input_ids, attention_mask)
         out = self.ln_sentiment(out)
-        raise NotImplementedError
+        return out 
 
 
     def predict_paraphrase(self,
