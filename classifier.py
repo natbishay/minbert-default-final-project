@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import classification_report, f1_score, recall_score, accuracy_score
+import torch.nn as nn
 
 # change it with respect to the original model
 from tokenizer import BertTokenizer
@@ -60,7 +61,7 @@ class BertSentimentClassifier(torch.nn.Module):
                 
         # encode sentences using BERT and obtain the pooled representation of each sentence 
         out = self.bert.forward(input_ids=input_ids, attention_mask=attention_mask)
-        sequence_output = out["sequence_output"] 
+        #sequence_output = out["sequence_output"] 
         pooler_output = out["pooler_output"] 
         # apply dropout on pooled output 
         pooler_dropout = torch.nn.Dropout(p=config.hidden_dropout_prob)(pooler_output)  
@@ -69,9 +70,9 @@ class BertSentimentClassifier(torch.nn.Module):
          
         # logit is last layer 
         # return one logit for each of the 5 sentiment categories
-        logits = projected      
-
-        return logits
+        logits = projected        
+        
+        return logits 
 
 
 
