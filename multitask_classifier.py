@@ -120,7 +120,7 @@ class MultitaskBERT(nn.Module):
         out2 = self.forward(input_ids_2, attention_mask_2)
         ## Sum the embeddings again? 
         out = out1 + out2
-        return self.ln_similarity(out)
+        return F.relu(self.ln_similarity(out))
 
 
 
@@ -164,8 +164,8 @@ def train_multitask(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=para_dev_data.collate_fn)
     
-    sts_train_data = SentencePairDataset(sts_train_data, args)
-    sts_dev_data = SentencePairDataset(sts_dev_data, args)
+    sts_train_data = SentencePairDataset(sts_train_data, args, isRegression=True)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args, isRegression=True)
 
     sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size,
                                       collate_fn=sts_train_data.collate_fn)
@@ -207,6 +207,7 @@ def train_multitask(args):
         num_batches = 0
         
         for i, (dataloader, predict) in enumerate(zip(dataloaders_train, predicters)):
+            print(i)
             for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 
 
@@ -234,19 +235,23 @@ def train_multitask(args):
 
 
                     logits = predict(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                
-                loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-
+                if i ==0 :
+                    loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+                elif i == 1: 
+                    loss = F.binary_cross_entropy_with_logits(logits.view(-1), b_labels.view(-1).float(), reduction='sum') / args.batch_size
+                else:
+                    loss = F.mse_loss(logits.view(-1), b_labels.float().view(-1))
                 loss.backward()
                 optimizer.step()
 
                 train_loss += loss.item()
                 num_batches += 1
+                
 
         train_loss = train_loss / (num_batches)
 
 
-
+        print("training done")
         train_acc, train_f1, *_ = model_eval_multitask(
             sst_train_dataloader, para_train_dataloader, sts_train_dataloader,
             model, device
