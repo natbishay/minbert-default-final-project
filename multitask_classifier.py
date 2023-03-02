@@ -51,9 +51,16 @@ class MultitaskBERT(nn.Module):
                 param.requires_grad = False
             elif config.option == 'finetune':
                 param.requires_grad = True
-        ### TODO
-        raise NotImplementedError
-
+        ### DONE
+        self.ln1 = nn.Linear(in_features = config.hidden_size,
+                             out_features=config.hidden_size)
+        self.ln_sentiment = nn.Linear(in_features = config.hidden_size,
+                             out_features=5)
+        self.ln_paraphrase = nn.Linear(in_features = config.hidden_size,
+                             out_features=1)
+        self.ln_similarity = nn.Linear(in_features = config.hidden_size,
+                             out_features=1)
+        self.dropout = nn.Dropout(p=config.hidden_dropout_prob)
 
     def forward(self, input_ids, attention_mask):
         'Takes a batch of sentences and produces embeddings for them.'
@@ -61,9 +68,21 @@ class MultitaskBERT(nn.Module):
         # Here, you can start by just returning the embeddings straight from BERT.
         # When thinking of improvements, you can later try modifying this
         # (e.g., by adding other layers).
-        ### TODO
-        raise NotImplementedError
-
+        ### DONE
+        # # encode sentences using BERT and obtain the pooled representation of each sentence 
+        out = self.bert.forward(input_ids=input_ids, attention_mask=attention_mask)
+        #sequence_output = out["sequence_output"] 
+        pooler_output = out["pooler_output"] 
+        # apply dropout on pooled output 
+        pooler_dropout = self.dropout(pooler_output)  
+        # project using linear layer 
+        projected = self.ln1(pooler_dropout) 
+         
+        # logit is last layer 
+        
+        logits = projected        
+        
+        return logits 
 
     def predict_sentiment(self, input_ids, attention_mask):
         '''Given a batch of sentences, outputs logits for classifying sentiment.
@@ -71,7 +90,9 @@ class MultitaskBERT(nn.Module):
         (0 - negative, 1- somewhat negative, 2- neutral, 3- somewhat positive, 4- positive)
         Thus, your output should contain 5 logits for each sentence.
         '''
-        ### TODO
+        ### DONE
+        out = self.forward(input_ids, attention_mask)
+        out = self.ln_sentiment(out)
         raise NotImplementedError
 
 
@@ -82,8 +103,12 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO
-        raise NotImplementedError
+        ### DONE
+        out1 = self.forward(input_ids_1, attention_mask_1)
+        out2 = self.forward(input_ids_2, attention_mask_2)
+        ## Sum the embeddings? We can also concatenate, this just to have something running (didn't want to mess with axes)
+        out = out1 + out2
+        return self.ln_paraphrase(out)
 
 
     def predict_similarity(self,
@@ -93,8 +118,12 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO
-        raise NotImplementedError
+        ### DONE
+        out1 = self.forward(input_ids_1, attention_mask_1)
+        out2 = self.forward(input_ids_2, attention_mask_2)
+        ## Sum the embeddings again? 
+        out = out1 + out2
+        return self.ln_similarity(out)
 
 
 
