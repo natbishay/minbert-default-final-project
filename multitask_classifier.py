@@ -207,7 +207,6 @@ def train_multitask(args):
         num_batches = 0
         
         for i, (dataloader, predict) in enumerate(zip(dataloaders_train, predicters)):
-            print(i)
             for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 
 
