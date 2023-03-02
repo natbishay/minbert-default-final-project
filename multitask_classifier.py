@@ -203,7 +203,8 @@ def train_multitask(args):
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
-        train_loss = 0
+        train_losses = [0,0,0]
+        # train_loss = 0
         num_batches = 0
         
         for i, (dataloader, predict) in enumerate(zip(dataloaders_train, predicters)):
@@ -240,10 +241,11 @@ def train_multitask(args):
                 loss.backward()
                 optimizer.step()
 
-                train_loss += loss.item()
+                # train_loss += loss.item()
+                train_losses[i] += loss.item()
                 num_batches += 1
 
-        train_loss = train_loss / (num_batches)
+        train_losses = train_losses / (num_batches)
 
 
 
