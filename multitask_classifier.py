@@ -180,9 +180,7 @@ def train_multitask(args):
         sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader
     ]
 
-    predicters = [
-        model.predict_sentiment, model.predict_paraphrase, model.predict_similarity
-    ]
+  
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
               'num_labels': num_labels,
@@ -195,6 +193,9 @@ def train_multitask(args):
     model = MultitaskBERT(config)
     model = model.to(device)
 
+    predicters = [
+        model.predict_sentiment, model.predict_paraphrase, model.predict_similarity
+    ]
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
@@ -205,7 +206,7 @@ def train_multitask(args):
         train_loss = 0
         num_batches = 0
         
-        for i, (dataloader, predict) in zip(dataloaders_train, predicters):
+        for i, (dataloader, predict) in enumerate(zip(dataloaders_train, predicters)):
             for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 
 
@@ -233,6 +234,7 @@ def train_multitask(args):
 
 
                     logits = predict(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+                
                 loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
 
                 loss.backward()
