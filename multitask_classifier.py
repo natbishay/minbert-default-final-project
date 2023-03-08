@@ -196,55 +196,94 @@ def train_multitask(args):
     predicters = [
         model.predict_sentiment, model.predict_paraphrase, model.predict_similarity
     ]
+    loss_functions = [
+        F.cross_entropy,
+        lambda x, y: F.binary_cross_entropy_with_logits(x.view(-1), y.float()), 
+        lambda x, y: F.mse_loss(x.view(-1), y.float())]
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
 
+
+    def get_input_labels(batch, single_sentence=True):
+        if single_sentence:
+            b_ids, b_mask, b_labels = (batch['token_ids'],
+                                            batch['attention_mask'], batch['labels'])
+
+            b_mask = b_mask.to(device)
+            b_labels = b_labels.to(device)
+            b_ids = b_ids.to(device)
+        
+            return (b_ids, b_mask), b_labels
+        else:
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (
+                                                        batch['token_ids_1'],batch['attention_mask_1'], 
+                                                        batch['token_ids_2'],batch['attention_mask_2'],
+                                                        batch['labels'])
+            b_ids_1 = b_ids_1.to(device)
+            b_mask_1 = b_mask_1.to(device)
+            b_ids_2 = b_ids_2.to(device)
+            b_mask_2 = b_mask_2.to(device)
+            b_labels = b_labels.to(device)
+            
+            return (b_ids_1, b_mask_1, b_ids_2, b_mask_2), b_labels
+
+    input_functions = [
+        lambda b: get_input_labels(b, True), 
+        lambda b: get_input_labels(b, False),
+        lambda b: get_input_labels(b, False)
+    ]
+
+
+    class Task:
+        def __init__(self, dataloader, predictor, loss_function, input_function):
+            self.dataloader = dataloader
+            self.predictor = predictor
+            self.loss_function = loss_function
+            self.input_function = input_function
+
+    task_sst = Task(
+        sst_train_dataloader,
+        model.predict_sentiment,
+        F.cross_entropy,
+        lambda b: get_input_labels(b, True), 
+    )
+    task_para = Task(
+        para_train_dataloader,
+        model.predict_paraphrase,
+        lambda x, y: F.binary_cross_entropy_with_logits(x.view(-1), y.float()), 
+        lambda b: get_input_labels(b, False), 
+    )
+    task_sts = Task(
+        sts_train_dataloader,
+        model.predict_similarity,
+        lambda x, y: F.mse_loss(x.view(-1), y.float()),
+        lambda b: get_input_labels(b, False), 
+    )
+    tasks = [task_sst, task_para, task_sts]
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         num_batches = 0
         
-        for i, (dataloader, predict) in enumerate(zip(dataloaders_train, predicters)):
-            for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+        
+        for i, task in enumerate(tasks):
+            for batch in tqdm(task.dataloader, desc=f'train-{epoch}'):
                 
+                
+                optimizer.zero_grad()                    
+                predict_args, b_labels = task.input_function(batch )
+                logits = task.predictor(*predict_args)
 
-                optimizer.zero_grad()
-                if i == 0:
-                    b_ids, b_mask, b_labels = (batch['token_ids'],
-                                        batch['attention_mask'], batch['labels'])
-
-                    b_mask = b_mask.to(device)
-                    b_labels = b_labels.to(device)
-                    b_ids = b_ids.to(device)
-
-                    logits = predict(b_ids, b_mask)
-                else:
-                    b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (
-                                                        batch['token_ids_1'],batch['attention_mask_1'], 
-                                                        batch['token_ids_2'],batch['attention_mask_2'],
-                                                        batch['labels']
-                    )
-                    b_ids_1 = b_ids_1.to(device)
-                    b_mask_1 = b_mask_1.to(device)
-                    b_ids_2 = b_ids_2.to(device)
-                    b_mask_2 = b_mask_2.to(device)
-                    b_labels = b_labels.to(device)
-
-
-                    logits = predict(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                if i ==0 :
-                    loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-                elif i == 1: 
-                    loss = F.binary_cross_entropy_with_logits(logits.view(-1), b_labels.view(-1).float(), reduction='sum') / args.batch_size
-                else:
-                    loss = F.mse_loss(logits.view(-1), b_labels.float().view(-1))
+                loss = task.loss_function(logits, b_labels) / args.batch_size
+                
                 loss.backward()
                 optimizer.step()
 
                 train_loss += loss.item()
                 num_batches += 1
+                break
                 
 
         train_loss = train_loss / (num_batches)
