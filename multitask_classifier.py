@@ -9,8 +9,8 @@ from torch.utils.data import DataLoader
 from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
-
-from datasets import SentenceClassificationDataset, SentencePairDataset, \
+from custom_losses import MultipleNegativesRankingLoss
+from datasets import SentenceClassificationDataset, SentencePairDataset, SentencePairDatasetPositive, \
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
@@ -60,6 +60,7 @@ class MultitaskBERT(nn.Module):
         self.ln_similarity = nn.Linear(in_features = config.hidden_size,
                              out_features=1)
         self.dropout = nn.Dropout(p=config.hidden_dropout_prob)
+        
 
     def forward(self, input_ids, attention_mask):
         'Takes a batch of sentences and produces embeddings for them.'
@@ -122,6 +123,13 @@ class MultitaskBERT(nn.Module):
         out = out1 + out2
         return F.relu(self.ln_similarity(out))
 
+    def forward_embeddings(self,
+                           input_ids_1, attention_mask_1,
+                           input_ids_2, attention_mask_2):
+        out1 = self.forward(input_ids_1, attention_mask_1)
+        out2 = self.forward(input_ids_2, attention_mask_2)
+        return torch.concat((out1, out2))
+    
 
 
 
@@ -150,7 +158,6 @@ def train_multitask(args):
 
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
-
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
                                       collate_fn=sst_train_data.collate_fn)
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
@@ -172,10 +179,10 @@ def train_multitask(args):
     sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=sts_dev_data.collate_fn)
     
-
-    dataloaders_train = [
-        sst_train_dataloader, para_train_dataloader, sts_train_dataloader
-    ]
+    neg_train_data = SentencePairDatasetPositive(para_train_data, args)
+    neg_train_dataloader = DataLoader(neg_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=sts_train_data.collate_fn)
+    
     dataloaders_dev = [
         sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader
     ]
@@ -193,13 +200,7 @@ def train_multitask(args):
     model = MultitaskBERT(config)
     model = model.to(device)
 
-    predicters = [
-        model.predict_sentiment, model.predict_paraphrase, model.predict_similarity
-    ]
-    loss_functions = [
-        F.cross_entropy,
-        lambda x, y: F.binary_cross_entropy_with_logits(x.view(-1), y.float()), 
-        lambda x, y: F.mse_loss(x.view(-1), y.float())]
+   
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
@@ -228,11 +229,7 @@ def train_multitask(args):
             
             return (b_ids_1, b_mask_1, b_ids_2, b_mask_2), b_labels
 
-    input_functions = [
-        lambda b: get_input_labels(b, True), 
-        lambda b: get_input_labels(b, False),
-        lambda b: get_input_labels(b, False)
-    ]
+    
 
 
     class Task:
@@ -241,6 +238,15 @@ def train_multitask(args):
             self.predictor = predictor
             self.loss_function = loss_function
             self.input_function = input_function
+
+
+    neg_rank_loss = MultipleNegativesRankingLoss( device)
+    task_neg_rank = Task(
+        neg_train_dataloader,
+        model.forward_embeddings,
+        neg_rank_loss, 
+        lambda b: get_input_labels(b, False), 
+    )
 
     task_sst = Task(
         sst_train_dataloader,
@@ -260,7 +266,10 @@ def train_multitask(args):
         lambda x, y: F.mse_loss(x.view(-1), y.float()),
         lambda b: get_input_labels(b, False), 
     )
-    tasks = [task_sst, task_para, task_sts]
+    if config.option == 'pretrain':
+        tasks = [task_sst, task_para, task_sts]
+    else:
+        tasks = [task_neg_rank, task_sst, task_para, task_sts]
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
@@ -273,7 +282,7 @@ def train_multitask(args):
                 
                 
                 optimizer.zero_grad()                    
-                predict_args, b_labels = task.input_function(batch )
+                predict_args, b_labels = task.input_function(batch)
                 logits = task.predictor(*predict_args)
 
                 loss = task.loss_function(logits, b_labels) / args.batch_size
@@ -283,7 +292,7 @@ def train_multitask(args):
 
                 train_loss += loss.item()
                 num_batches += 1
-                break
+                
                 
 
         train_loss = train_loss / (num_batches)
@@ -338,7 +347,7 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--option", type=str,
                         help='pretrain: the BERT parameters are frozen; finetune: BERT parameters are updated',
-                        choices=('pretrain', 'finetune'), default="pretrain")
+                        choices=('pretrain', 'finetune'), default="finetune")
     parser.add_argument("--use_gpu", action='store_true')
 
     parser.add_argument("--sst_dev_out", type=str, default="predictions/sst-dev-output.csv")
@@ -351,7 +360,7 @@ def get_args():
     parser.add_argument("--sts_test_out", type=str, default="predictions/sts-test-output.csv")
 
     # hyper parameters
-    parser.add_argument("--batch_size", help='sst: 64, cfimdb: 8 can fit a 12GB GPU', type=int, default=8)
+    parser.add_argument("--batch_size", help='sst: 64, cfimdb: 8 can fit a 12GB GPU', type=int, default=2)
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
