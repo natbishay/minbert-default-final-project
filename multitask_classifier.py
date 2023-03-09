@@ -279,7 +279,8 @@ def train_multitask(args):
         
         for i, task in enumerate(tasks):
             for batch in tqdm(task.dataloader, desc=f'train-{epoch}'):
-                
+                if len(batch) != args.batch_size:
+                    continue
                 
                 optimizer.zero_grad()                    
                 predict_args, b_labels = task.input_function(batch)
