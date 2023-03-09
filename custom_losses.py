@@ -68,7 +68,7 @@ class MultipleNegativesRankingLoss(nn.Module):
         #     return 0
         
         
-        left, right = sentence_pairs[:2], sentence_pairs[2:]
+        left, right = sentence_pairs
 
         scores = cos_sim(left, right) * self.scale
         labels = torch.tensor(range(len(scores)), dtype=torch.long, device=self.device)  # Example a[i] should match with b[i]

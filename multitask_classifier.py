@@ -128,8 +128,7 @@ class MultitaskBERT(nn.Module):
                            input_ids_2, attention_mask_2):
         out1 = self.forward(input_ids_1, attention_mask_1)
         out2 = self.forward(input_ids_2, attention_mask_2)
-        return torch.concat((out1, out2))
-    
+        return out1, out2
 
 
 
@@ -181,7 +180,7 @@ def train_multitask(args):
     
     neg_train_data = SentencePairDatasetPositive(para_train_data, args)
     neg_train_dataloader = DataLoader(neg_train_data, shuffle=True, batch_size=args.batch_size,
-                                      collate_fn=sts_train_data.collate_fn)
+                                      collate_fn=neg_train_data.collate_fn)
     
     dataloaders_dev = [
         sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader
