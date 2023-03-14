@@ -14,7 +14,7 @@ from datasets import SentenceClassificationDataset, SentencePairDataset, Sentenc
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
-
+from datetime import datetime
 
 TQDM_DISABLE=True
 
@@ -90,6 +90,7 @@ class MultitaskBERT(nn.Module):
         '''
         ### DONE
         out = self.forward(input_ids, attention_mask)
+        # add more layers: relu, linear, out
         out = self.ln_sentiment(out)
         return out 
 
@@ -232,11 +233,13 @@ def train_multitask(args):
 
 
     class Task:
-        def __init__(self, dataloader, predictor, loss_function, input_function):
+        def __init__(self, dataloader, predictor, loss_function, input_function, name):
             self.dataloader = dataloader
             self.predictor = predictor
             self.loss_function = loss_function
             self.input_function = input_function
+            self.losses = []
+            self.name=name
 
 
     neg_rank_loss = MultipleNegativesRankingLoss( device)
@@ -245,6 +248,7 @@ def train_multitask(args):
         model.forward_embeddings,
         neg_rank_loss, 
         lambda b: get_input_labels(b, False), 
+        "neg rank"
     )
 
     task_sst = Task(
@@ -252,24 +256,28 @@ def train_multitask(args):
         model.predict_sentiment,
         F.cross_entropy,
         lambda b: get_input_labels(b, True), 
+        "sentiment"
     )
     task_para = Task(
         para_train_dataloader,
         model.predict_paraphrase,
         lambda x, y: F.binary_cross_entropy_with_logits(x.view(-1), y.float()), 
         lambda b: get_input_labels(b, False), 
+        "paraphrase"
     )
     task_sts = Task(
         sts_train_dataloader,
         model.predict_similarity,
         lambda x, y: F.mse_loss(x.view(-1), y.float()),
         lambda b: get_input_labels(b, False), 
+        "similarity"
     )
     if config.option == 'pretrain':
         tasks = [task_sst, task_para, task_sts]
     else:
         tasks = [task_neg_rank, task_sst, task_para, task_sts]
     # Run for the specified number of epochs
+
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
@@ -278,8 +286,7 @@ def train_multitask(args):
         
         for i, task in enumerate(tasks):
             for batch in tqdm(task.dataloader, desc=f'train-{epoch}'):
-                if len(batch) != args.batch_size:
-                    continue
+                
                 
                 optimizer.zero_grad()                    
                 predict_args, b_labels = task.input_function(batch)
@@ -292,11 +299,11 @@ def train_multitask(args):
 
                 train_loss += loss.item()
                 num_batches += 1
+            
+            task.losses.append(train_loss)
                 
-                
-
+        
         train_loss = train_loss / (num_batches)
-
 
         print("training done")
         train_acc, train_f1, *_ = model_eval_multitask(
@@ -312,7 +319,10 @@ def train_multitask(args):
             save_model(model, optimizer, args, config, args.filepath)
 
         print(f"Epoch {epoch} : train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
-
+    for task in tasks:
+        t1 = datetime.now().strftime("%m_%d_%Y %H:%M:%S")
+        filename = ("log/"+task.name+t1).replace(" ", "_")
+        np.save(filename, np.array(task.losses))
 
 
 def test_model(args):

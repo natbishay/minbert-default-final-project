@@ -1,4 +1,8 @@
 cs224n_default_final_project_submission/
+
+!/log
+/log/*
+!/log/file_so_not_ignored.txt
 .DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
