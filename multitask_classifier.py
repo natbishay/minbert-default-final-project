@@ -298,8 +298,6 @@ def train_multitask(args):
         
         
         for i, task in enumerate(tasks):
-            if i in [0,1]:
-                continue
             for batch in tqdm(task.dataloader, desc=f'train-{epoch}'):
                 
                 
@@ -308,6 +306,9 @@ def train_multitask(args):
                 logits = task.predictor(*predict_args)
 
                 loss = task.loss_function(logits, b_labels) / args.batch_size
+
+                if task.name == "sentiment" or task.name == "neg rank":
+                    loss *= 5
                 
                 loss.backward()
                 optimizer.step()
