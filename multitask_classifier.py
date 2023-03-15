@@ -59,6 +59,11 @@ class MultitaskBERT(nn.Module):
                              out_features=1)
         self.ln_similarity = nn.Linear(in_features = config.hidden_size,
                              out_features=1)
+        self.shared = False
+        if config.model == "shared":
+            self.shared=True
+            self.shared_layer = nn.Linear(in_features = config.hidden_size, out_features=config.hidden_size)
+
         self.dropout = nn.Dropout(p=config.hidden_dropout_prob)
         
 
@@ -103,10 +108,14 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### DONE
+       
         out1 = self.forward(input_ids_1, attention_mask_1)
         out2 = self.forward(input_ids_2, attention_mask_2)
         ## Sum the embeddings? We can also concatenate, this just to have something running (didn't want to mess with axes)
         out = out1 + out2
+        if self.shared:
+            out = self.shared_layer(out)
+            out = F.relu(out)
         return self.ln_paraphrase(out)
 
 
@@ -122,6 +131,9 @@ class MultitaskBERT(nn.Module):
         out2 = self.forward(input_ids_2, attention_mask_2)
         ## Sum the embeddings again? 
         out = out1 + out2
+        if self.shared:
+            out = self.shared_layer(out)
+            out = F.relu(out)
         return F.relu(self.ln_similarity(out))
 
     def forward_embeddings(self,
@@ -193,7 +205,8 @@ def train_multitask(args):
               'num_labels': num_labels,
               'hidden_size': 768,
               'data_dir': '.',
-              'option': args.option}
+              'option': args.option, 
+              'model': args.model}
 
     config = SimpleNamespace(**config)
 
@@ -285,6 +298,8 @@ def train_multitask(args):
         
         
         for i, task in enumerate(tasks):
+            if i in [0,1]:
+                continue
             for batch in tqdm(task.dataloader, desc=f'train-{epoch}'):
                 
                 
@@ -358,6 +373,9 @@ def get_args():
     parser.add_argument("--option", type=str,
                         help='pretrain: the BERT parameters are frozen; finetune: BERT parameters are updated',
                         choices=('pretrain', 'finetune'), default="finetune")
+    parser.add_argument("--model", type=str,
+                        help='shared: share layers, else: not',
+                        choices=('shared', 'regular'), default="shared")
     parser.add_argument("--use_gpu", action='store_true')
 
     parser.add_argument("--sst_dev_out", type=str, default="predictions/sst-dev-output.csv")
